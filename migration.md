@@ -2,6 +2,8 @@
 
 This document explains how to migrate an existing CollectiveAccess installation (Providence + Pawtucket) into the Docker Starter Kit. It covers the IIS-style upgrade workflow, what to copy, what not to copy, how to import your database, and how to trigger CA’s built‑in upgrade process.
 
+If you are upgrading an existing Docker installation to a newer CA version, see upgrading.md.
+
 This guide is for users who already have:
 
 - a working CA installation  
