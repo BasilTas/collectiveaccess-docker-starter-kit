@@ -2,6 +2,7 @@
 
 This document explains how to safely upgrade CollectiveAccess, PHP, MySQL, and related components inside the Docker Starter Kit. It covers version compatibility, recommended upgrade paths, and how to rebuild containers without losing data.
 
+If you are upgrading from an external IIS/Apache installation into Docker, see migration.md.
 ---
 
 ## Overview
