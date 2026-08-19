@@ -109,6 +109,8 @@ FAQ
 
 This documentation is designed to help both beginners and institutions deploying CA in production.
 
+Microsoft CoPilot assisted in drafting this documentation
+
 Contributing
 If you find improvements or want to add examples, feel free to open an issue or submit a pull request.
 This starter kit is intended to help the CollectiveAccess community modernise and simplify deployments.
