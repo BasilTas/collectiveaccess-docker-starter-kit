@@ -1,0 +1,27 @@
+services:
+  ca:
+    build: .
+    container_name: ca-container
+    ports:
+      - "8080:80"
+    volumes:
+      - ./ca:/var/www/html/ca
+      - ./capublic:/var/www/html/capublic
+      - ./php.ini:/usr/local/etc/php/php.ini
+      - ./apache.conf:/etc/apache2/sites-enabled/000-default.conf
+    depends_on:
+      - mysql
+
+  mysql:
+    image: mysql:8.0
+    container_name: ca-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: ca
+      MYSQL_USER: causer
+      MYSQL_PASSWORD: capass
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  mysql_data:
