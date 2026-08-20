@@ -1,205 +1,196 @@
 # Configuration Guide
 
-This document explains the essential configuration steps required to run CollectiveAccess (Providence + Pawtucket) correctly inside the Docker Starter Kit. It covers PHP settings, URL root overrides, permissions, database connectivity, and recommended adjustments to CA’s setup files.
+This document explains how to configure the CollectiveAccess Docker Starter Kit, including environment variables, PHP settings, Apache routing, MySQL tuning, and application‑level configuration for Providence and Pawtucket.
+
+The goal is to provide a predictable, reproducible configuration workflow that works reliably across Windows, macOS, and Linux.
 
 ---
 
-## Overview
+## 1. Environment Variables
 
-CollectiveAccess requires several configuration adjustments when running inside Docker:
+Environment variables for MySQL are defined in `docker-compose.yml` under the `mysql` service:
 
-- Correct PHP settings
-- Correct database hostname
-- Correct URL routing
-- Correct media directory handling
-- Correct permissions for temporary directories
-- Correct overrides in `setup.php` and `post-setup.php`
+```yaml
+environment:
+  MYSQL_ROOT_PASSWORD: rootpass
+  MYSQL_DATABASE: ca
+  MYSQL_USER: causer
+  MYSQL_PASSWORD: capass
+These values are used by the installer and by Providence/Pawtucket when connecting to the database.
 
-This guide documents all required changes.
+If you change these values, update the CA configuration files accordingly.
 
----
-
-## 1. PHP Configuration (`php.ini`)
-
-The starter kit includes a tuned `php.ini` file with recommended settings:
-
-### Memory and execution
-memory_limit = 512M
-max_execution_time = 120
+2. Database Connection Configuration
+After installation, CollectiveAccess stores database connection settings in:
 
 Code
-
-### Upload limits
-upload_max_filesize = 64M
-post_max_size = 64M
-
-Code
-
-### Timezone
-date.timezone = UTC
-
-Code
-
-### Error visibility
-display_errors = Off
-log_errors = On
-
-Code
-
-These settings ensure CA runs smoothly and avoids common upload or timeout issues.
-
----
-
-## 2. Database Configuration
-
-Inside Docker, the MySQL hostname is:
-
-mysql
-
-Code
-
-This must be used during installation and in CA’s configuration files.
-
-### Installer settings:
-
-- Host: `mysql`
-- Database: `collectiveaccess`
-- Username: `root`
-- Password: `root`
-
-These values match the `docker-compose.yml` configuration.
-
----
-
-## 3. Providence Configuration
-
-Providence lives at:
-
-/var/www/html/ca
-
-Code
-
-### Required override in `post-setup.php`
-
-Replace the auto-generated URL root with:
-
-```php
-define("__CA_URL_ROOT__", "/ca");
-This prevents infinite redirect loops and ensures correct routing.
-
-Optional override in setup.php
-Ensure:
+ca/app/conf/local/configuration.php
+capublic/app/conf/local/configuration.php
+The installer writes these automatically.
+If you need to adjust them manually, the relevant entries are:
 
 php
-define("__CA_BASE_DIR__", "/var/www/html/ca");
-4. Pawtucket Configuration
-Pawtucket lives at:
+__CA_DB_HOST__ = "mysql";
+__CA_DB_USER__ = "causer";
+__CA_DB_PASSWORD__ = "capass";
+__CA_DB_DATABASE__ = "ca";
+The hostname must remain mysql, which is the internal Docker network name of the database container.
+
+3. MySQL Configuration
+MySQL Image
+The starter kit uses:
 
 Code
-/var/www/html/capublic
-Required override in post-setup.php
-Replace the auto-generated URL root with:
+mysql/mysql-server:8.0
+This image is stable, predictable, and works consistently across platforms.
+
+Buffer Pool Tuning
+The InnoDB buffer pool size is set using the container command: directive:
+
+yaml
+command: --innodb-buffer-pool-size=1G
+This method is used because:
+
+MySQL config file mounts are unreliable on Windows
+
+Alpine and Debian MySQL images use different config directories
+
+The buffer pool is critical for CollectiveAccess performance
+
+The command: override works consistently everywhere
+
+Data Persistence
+MySQL stores its data in a Docker volume:
+
+Code
+mysql_data
+If you switch MySQL images, you must delete this volume:
+
+Code
+docker volume rm collectiveaccess-docker_mysql_data
+This is required because MySQL data directories are not portable between distributions.
+
+4. PHP Configuration
+The starter kit includes a custom php.ini file mounted into the container:
+
+Code
+./php.ini:/usr/local/etc/php/php.ini
+This file applies performance‑critical overrides for CollectiveAccess.
+
+Recommended Settings
+The following settings are included and should remain:
+
+ini
+memory_limit = 1024M
+upload_max_filesize = 512M
+post_max_size = 512M
+max_execution_time = 300
+max_input_time = 300
+These values ensure:
+
+large media uploads work
+
+long‑running imports do not time out
+
+CA’s installer and metadata builder complete reliably
+
+If you need to adjust PHP behaviour, modify php.ini and restart the containers.
+
+5. Apache Configuration
+Apache configuration is provided by:
+
+Code
+./apache.conf:/etc/apache2/sites-enabled/000-default.conf
+This file defines:
+
+document root
+
+routing for /ca and /capublic
+
+rewrite rules
+
+directory permissions
+
+PHP handler behaviour
+
+The default configuration supports both Providence and Pawtucket without requiring virtual hosts.
+
+6. Application Configuration (Providence & Pawtucket)
+URL Root Overrides
+The installer writes URL settings into:
+
+Code
+ca/app/conf/local/configuration.php
+capublic/app/conf/local/configuration.php
+The starter kit ensures correct routing by setting:
 
 php
-define("__CA_URL_ROOT__", "/capublic");
-This ensures Pawtucket builds correct URLs for:
+__CA_URL_ROOT__ = "/ca";
+__CA_URL_ROOT__ = "/capublic";
+These values match the Apache routing and Docker port mapping.
 
-browse pages
-
-detail pages
-
-media
-
-search
-
-login redirects
-
-Optional override in setup.php
-Ensure:
-
-php
-define("__CA_BASE_DIR__", "/var/www/html/capublic");
-5. Media Directory Symlink
-Pawtucket must use Providence’s media directory.
-
-Inside the container:
+Media Directory
+Pawtucket uses a symlink:
 
 Code
-rm -rf /var/www/html/capublic/media
-ln -s /var/www/html/ca/media /var/www/html/capublic/media
-Verify:
-
-Code
-ls -l /var/www/html/capublic/media
-Expected:
-
-Code
-media -> /var/www/html/ca/media
+capublic/media → ca/media
 This ensures:
 
 no duplication
 
-correct derivatives
+consistent derivatives
 
 correct public access
 
 correct backend access
 
-6. Permissions
-CA requires writable temporary directories.
+No configuration changes are required for media handling.
 
-Inside the container:
+7. Resetting the Environment
+If you need to reset the stack:
 
-Code
-chmod -R 775 /var/www/html/ca/app/tmp
-chmod -R 775 /var/www/html/capublic/app/tmp
-
-chown -R www-data:www-data /var/www/html/ca/app/tmp
-chown -R www-data:www-data /var/www/html/capublic/app/tmp
-Without these permissions, CA may fail silently.
-
-7. Apache Rewrite Configuration
-The Dockerfile enables rewrite:
+Stop containers
 
 Code
-a2enmod rewrite
-The Apache site configuration must allow .htaccess:
+docker-compose down
+Remove MySQL data volume
 
 Code
-<Directory /var/www/html>
-    AllowOverride All
-    Require all granted
-</Directory>
-This is required for CA’s routing system.
-
-8. Verifying Configuration
-Providence
-Visit:
+docker volume rm collectiveaccess-docker_mysql_data
+Rebuild
 
 Code
-http://localhost:8080/ca
-If login works without redirect loops, configuration is correct.
-
-Pawtucket
-Visit:
+docker-compose up -d --force-recreate
+Re-run the installer
 
 Code
-http://localhost:8080/capublic
-If media loads and pages route correctly, configuration is correct.
+http://localhost:8080/ca/install
+8. Known Windows Considerations
+When running under Docker Desktop on Windows:
+
+MySQL config file mounts may appear but not be readable
+
+The installer may take ~800 seconds due to filesystem overhead
+
+PHP file scanning is slower than on native Linux
+
+The buffer pool must be set via command: rather than config files
+
+These behaviours are normal and not signs of misconfiguration.
 
 Summary
-This configuration ensures:
+This configuration approach provides:
 
-correct routing for Providence and Pawtucket
+reliable MySQL tuning
 
-correct media handling
+predictable PHP behaviour
 
-correct database connectivity
+correct routing for both CA applications
 
-correct PHP environment
+stable media handling
 
-correct permissions
+reproducible Docker builds
 
-stable, reproducible Docker behaviour
+cross‑platform compatibility
 
-Proceed to routing.md for deeper details on URL handling and rewrite rules.
+Use this document as the reference for configuring and maintaining your CollectiveAccess Docker environment.
