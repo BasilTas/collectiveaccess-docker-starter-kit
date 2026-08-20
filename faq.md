@@ -1,205 +1,278 @@
-# Installation Guide
+# Frequently Asked Questions (FAQ)
 
-This document explains how to install CollectiveAccess (Providence + Pawtucket) using the Docker Starter Kit. It covers container startup, running the installer, creating the database, and verifying the environment.
-
-The goal is to provide a clean, predictable installation workflow that works reliably across Windows, macOS, and Linux.
+This document answers common questions about using the CollectiveAccess Docker Starter Kit. It covers installation, configuration, routing, media handling, MySQL behaviour, performance expectations, and general usage patterns.
 
 ---
 
-## 1. Prerequisites
+## General Questions
 
-Before you begin, ensure you have:
+### **What is this starter kit for?**
+It provides a modern, reproducible Docker environment for running:
 
-- Docker Desktop (Windows/macOS) or Docker Engine (Linux)
-- Docker Compose
-- A web browser
+- Providence (backend)
+- Pawtucket (frontend)
+- MySQL 8.x
+- PHP 8.x
+- Apache with rewrite enabled
 
-No PHP, MySQL, or Apache installation is required on the host system.
-
----
-
-## 2. Start the Containers
-
-From the project root:
-
-docker-compose up -d
-
-Code
-
-This launches:
-
-- **ca-app** (Apache + PHP + Providence + Pawtucket)
-- **ca-mysql** (MySQL 8.x with tuned buffer pool)
-
-You can verify they are running:
-
-docker ps
-
-Code
-
-Expected:
-
-- `ca-app` → Up  
-- `ca-mysql` → Up  
+It includes fixes for routing, media handling, MySQL tuning, and configuration issues that commonly affect CA installations.
 
 ---
 
-## 3. Access the Providence Installer
+### **Why Docker instead of manual installation?**
+Docker provides:
 
-Open your browser:
+- consistent environments  
+- easy upgrades  
+- simple backups  
+- no need to install PHP/MySQL/Apache on the host  
+- reproducible deployments  
+- easy migration between machines  
+
+It also avoids OS‑specific issues (Windows/IIS, macOS permissions, Linux package differences).
+
+---
+
+## Installation Questions
+
+### **Where do I run the installer?**
+Providence installer:
 
 http://localhost:8080/ca/install
 
 Code
 
-If you see the installer screen, your environment is working.
+Pawtucket does not have an installer.
 
 ---
 
-## 4. Database Configuration
+### **What database hostname should I use?**
+Always use:
 
-During installation, use the following settings:
-
-**Database host:**
 mysql
 
 Code
 
-**Database name:**
-ca
-
-Code
-
-**Username:**
-causer
-
-Code
-
-**Password:**
-capass
-
-Code
-
-These values match the `docker-compose.yml` configuration.
+This is the internal Docker hostname for the MySQL container.
 
 ---
 
-## 5. Complete the Installer
+### **Do I need to expose MySQL to the host?**
+No.  
+The database runs inside Docker and is accessed only by the CA application container.
 
-The installer will:
+---
 
-- create all required tables  
-- populate initial configuration  
-- generate default roles  
-- create the admin user  
-- verify media directories  
-- verify PHP extensions  
-
-This process may take **~800 seconds on Windows** due to Docker Desktop filesystem overhead.  
-This is normal and not a sign of misconfiguration.
+### **Why does the installer take ~800 seconds on Windows?**
+Because Docker Desktop adds significant filesystem overhead.  
+The CA installer is CPU‑bound and reads thousands of small PHP/XML files.
 
 Typical install times:
 
-- Windows + Docker Desktop: ~800 seconds  
-- WSL2: ~300–400 seconds  
-- Native Linux: ~200–300 seconds  
+- **Windows + Docker Desktop:** ~800 seconds  
+- **WSL2:** ~300–400 seconds  
+- **Native Linux:** ~200–300 seconds  
+
+This is normal and not a sign of misconfiguration.
 
 ---
 
-## 6. Log In to Providence
+## Configuration Questions
 
-Visit:
+### **Why is the MySQL buffer pool set using `command:` instead of a config file?**
+Because MySQL config file mounts are unreliable on Windows.  
+Some MySQL images silently ignore mounted config files.
 
-http://localhost:8080/ca
+The starter kit uses:
+
+```yaml
+command: --innodb-buffer-pool-size=1G
+This method is:
+
+reliable
+
+cross‑platform
+
+independent of Alpine/Debian differences
+
+guaranteed to apply
+
+Where do I set __CA_URL_ROOT__?
+In:
 
 Code
+ca/app/conf/local/configuration.php
+capublic/app/conf/local/configuration.php
+Providence:
 
-Enter the admin credentials you created during installation.
+php
+__CA_URL_ROOT__ = "/ca";
+Pawtucket:
 
-If login succeeds, Providence is fully operational.
+php
+__CA_URL_ROOT__ = "/capublic";
+These values match the Apache routing.
 
----
+Why does Pawtucket need a media symlink?
+Because:
 
-## 7. Access Pawtucket
+Providence stores all media
 
-Visit:
+Pawtucket must read the same files
 
-http://localhost:8080/capublic
+Pawtucket does not generate derivatives
+
+The symlink ensures consistent media access:
 
 Code
+capublic/media → ca/media
+Routing Questions
+Why do I get an infinite redirect loop?
+Cause:
 
-You should see the default Pawtucket front page.
+incorrect __CA_URL_ROOT__
 
-If media thumbnails appear, the symlink is working.
+Fix:
 
----
+php
+__CA_URL_ROOT__ = "/ca";
+Why does Pawtucket load Providence pages?
+Cause:
 
-## 8. Verify Media Symlink
+incorrect Apache alias
 
-Inside the container:
+incorrect URL root
 
+Fix:
+
+verify /capublic alias
+
+set correct URL root
+
+Why do I get “Not Found” errors?
+Cause:
+
+Apache rewrite disabled
+
+.htaccess ignored
+
+Fix:
+
+Code
+a2enmod rewrite
+AllowOverride All
+Media Questions
+Why are thumbnails broken?
+Cause:
+
+missing symlink
+
+incorrect permissions
+
+Fix:
+
+Code
+rm -rf capublic/media
+ln -s ca/media capublic/media
+chmod -R 775 ca/media
+Where should I store media?
+Always in:
+
+Code
+ca/media/
+Pawtucket reads from the symlink.
+
+MySQL Questions
+Why did my database disappear after switching MySQL images?
+Because MySQL data directories are not portable between distributions.
+
+If you switch images (Debian → Alpine or vice‑versa), you must delete the old volume:
+
+Code
+docker volume rm collectiveaccess-docker_mysql_data
+This is normal and unavoidable.
+
+How do I back up the database?
+Code
+docker exec ca-mysql mysqldump -u root -prootpass ca > backup.sql
+How do I restore a backup?
+Code
+docker exec -i ca-mysql mysql -u root -prootpass ca < backup.sql
+Docker Questions
+How do I rebuild the environment?
+Code
+docker-compose down
+docker-compose up -d --force-recreate
+How do I access the CA container?
+Code
 docker exec -it ca-container bash
-ls -l /var/www/html/capublic/media
-
+How do I access the MySQL container?
 Code
-
-You should see:
-
-media -> /var/www/html/ca/media
-
-Code
-
-This ensures Pawtucket uses Providence’s media directory.
-
----
-
-## 9. Verify URL Routing
-
-Providence must use:
-
-CA_URL_ROOT = "/ca"
-
-Code
-
-Pawtucket must use:
-
-CA_URL_ROOT = "/capublic"
-
-Code
-
-These overrides prevent redirect loops and routing errors.
-
----
-
-## 10. MySQL Performance Verification
-
-To confirm the tuned buffer pool size:
-
 docker exec -it ca-mysql bash
-mysql -u root -prootpass -e "SHOW VARIABLES LIKE 'innodb_buffer_pool_size';"
+Performance Questions
+Why does CA feel faster after tuning MySQL?
+Because:
+
+metadata loads stay hot
+
+index pages stay in memory
+
+first-page loads stop stalling
+
+search performance improves
+
+disk thrashing disappears
+
+Runtime performance improves even though installer time does not.
+
+Why is the installer still slow?
+Because the installer is CPU‑bound and dominated by PHP parsing thousands of files.
+
+MySQL tuning improves runtime performance, not installer duration.
+
+Miscellaneous Questions
+Can I use custom themes?
+Yes.
+Place them in:
 
 Code
-
-Expected:
-
-1073741824
+capublic/themes/<yourtheme>/
+Can I use custom views or bundles?
+Yes.
+Place them in:
 
 Code
+ca/app/views/
+ca/app/conf/bundles/
+Can I run this on a NAS or cloud VM?
+Yes.
+Docker makes the environment portable across:
 
-This value is applied via the `command:` directive in `docker-compose.yml`.
+Synology
 
----
+QNAP
 
-## 11. Installation Complete
+Debian/Ubuntu servers
 
-You now have:
+Windows WSL2
 
-- Providence running under `/ca`  
-- Pawtucket running under `/capublic`  
-- MySQL 8.x with a tuned 1GB buffer pool  
-- Media shared via symlink  
-- PHP 8.x with CA‑specific overrides  
-- Apache rewrite enabled  
-- A reproducible, cross‑platform CA environment  
+macOS
 
-Proceed to the configuration and routing guides for next step
+cloud VMs (AWS, Azure, GCP)
+
+Summary
+This FAQ covers the most common questions about installing, configuring, upgrading, and maintaining CollectiveAccess inside Docker. For deeper details, see the other documents in the /docs folder:
+
+architecture.md
+
+installation.md
+
+configuration.md
+
+routing.md
+
+media-symlink.md
+
+troubleshooting.md
+
+upgrading.md
