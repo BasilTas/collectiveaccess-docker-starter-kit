@@ -1,72 +1,175 @@
 # Troubleshooting Guide
 
-This document lists common issues encountered when running CollectiveAccess (Providence + Pawtucket) inside the Docker Starter Kit, along with clear explanations and fixes. These solutions are based on real-world deployment experience and address problems frequently seen in Docker, Apache, and CA routing.
+This document covers common issues encountered when running CollectiveAccess inside the Docker Starter Kit. It includes fixes for MySQL errors, routing problems, media issues, installation failures, and Docker‑specific behaviour on Windows, macOS, and Linux.
 
 ---
 
-## Overview
+# 1. MySQL Problems
 
-Most issues fall into a few categories:
-
-- Incorrect URL routing
-- Incorrect `__CA_URL_ROOT__`
-- Missing media symlink
-- Incorrect permissions
-- Incorrect MySQL hostname
-- Apache rewrite not enabled
-- Incorrect directory layout
-
-This guide provides quick diagnosis and fixes for each.
-
----
-
-# 1. Infinite Redirect Loop (Providence)
+## 1.1 MySQL fails to start with `binlog.index` errors
 
 ### Symptoms
-- Visiting `/ca` redirects repeatedly
-- Login page never appears
-- Browser shows “too many redirects”
+- MySQL container exits immediately  
+- Logs show:
+binlog.index: permission denied
+
+Code
+- Providence reports “database not installed”
 
 ### Cause
-Incorrect `__CA_URL_ROOT__` in `post-setup.php`.
+MySQL data directories are **not portable** between distributions.  
+Switching images (Debian ↔ Alpine) breaks the existing volume.
 
 ### Fix
-Set:
+Delete the MySQL data volume:
 
-```php
-define("__CA_URL_ROOT__", "/ca");
-Restart container:
+docker volume rm collectiveaccess-docker_mysql_data
+docker-compose up -d
 
 Code
-docker-compose restart ca-app
-2. Pawtucket Loads Providence Pages
-Symptoms
-Visiting /capublic shows Providence login
 
-Public pages missing
+This is normal and unavoidable.
 
-Pawtucket theme not loading
+---
 
+## 1.2 MySQL ignores custom config files
+
+### Symptoms
+- `innodb_buffer_pool_size` stays at 134217728  
+- No warnings in logs  
+- Mounted config file appears in container but is not applied
+
+### Cause
+On Windows, MySQL config mounts may appear but **not be readable** internally.  
+Some MySQL images silently ignore mounted config files.
+
+### Fix
+Use the `command:` override:
+
+```yaml
+command: --innodb-buffer-pool-size=1G
+This method is reliable across all platforms.
+
+1.3 MySQL buffer pool size is incorrect
+Check
+Code
+docker exec -it ca-mysql bash
+mysql -u root -prootpass -e "SHOW VARIABLES LIKE 'innodb_buffer_pool_size';"
+Expected:
+
+Code
+1073741824
+If not:
+
+Ensure the command: override is present
+
+Recreate the container
+
+Delete the MySQL volume if switching images
+
+2. Docker & YAML Problems
+2.1 additional properties 'mysql' not allowed
 Cause
-Incorrect base directory or missing Apache alias.
+Indentation error in docker-compose.yml:
+
+Code
+services:
+  ca:
+    ...
+ mysql:   ← incorrect indentation
+Fix
+Ensure mysql: is aligned under services::
+
+yaml
+services:
+  ca:
+    ...
+  mysql:
+    ...
+2.2 mapping key "volumes" already defined
+Cause
+Duplicate volumes: block or mis‑indentation.
 
 Fix
-Verify:
+Ensure only one top‑level volumes: block exists:
+
+yaml
+volumes:
+  mysql_data:
+3. Installation Problems
+3.1 Installer takes 800+ seconds
+Cause
+Docker Desktop on Windows has slow filesystem performance.
+CA installer is CPU‑bound and reads thousands of files.
+
+Fix
+This is normal.
+
+Typical install times:
+
+Windows + Docker Desktop: ~800 seconds
+
+WSL2: ~300–400 seconds
+
+Native Linux: ~200–300 seconds
+
+Runtime performance improves dramatically after installation.
+
+3.2 Installer reports “database not installed”
+Causes
+MySQL volume reset
+
+MySQL failed to start
+
+Wrong database host
+
+Fixes
+Ensure MySQL is running
+
+Use hostname:
 
 Code
-Alias /capublic /var/www/html/capublic
-And in post-setup.php:
+mysql
+Re-run installer:
+
+Code
+http://localhost:8080/ca/install
+4. Routing Problems
+4.1 Redirect loop when accessing Providence
+Cause
+Incorrect URL root.
+
+Fix
+In ca/app/conf/local/configuration.php:
 
 php
-define("__CA_URL_ROOT__", "/capublic");
-3. Media Not Loading (Broken Thumbnails)
-Symptoms
-Pawtucket shows broken images
+__CA_URL_ROOT__ = "/ca";
+4.2 Pawtucket loads Providence pages
+Cause
+Incorrect URL root or missing Apache alias.
 
-Providence shows missing derivatives
+Fix
+In capublic/app/conf/local/configuration.php:
 
-Media viewers fail
+php
+__CA_URL_ROOT__ = "/capublic";
+Ensure Apache alias exists:
 
+apache
+Alias /capublic /var/www/html/capublic
+4.3 “Not Found” or missing CSS/JS
+Cause
+Apache rewrite disabled.
+
+Fix
+Ensure:
+
+apache
+AllowOverride All
+is set for both /ca and /capublic.
+
+5. Media Problems
+5.1 Pawtucket thumbnails broken
 Cause
 Missing or incorrect symlink.
 
@@ -76,170 +179,106 @@ Inside container:
 Code
 rm -rf /var/www/html/capublic/media
 ln -s /var/www/html/ca/media /var/www/html/capublic/media
-Verify:
-
-Code
-ls -l /var/www/html/capublic/media
-Expected:
-
-Code
-media -> /var/www/html/ca/media
-4. “Media Not Found” Errors
-Symptoms
-Pawtucket pages load but media does not
-
-Providence shows missing media paths
-
-Causes
-Incorrect URL root
-
-Incorrect routing
-
-Permissions issue
-
-Fixes
-Verify __CA_URL_ROOT__
-
-Verify symlink
-
-Fix permissions:
-
-Code
-chmod -R 775 /var/www/html/ca/media
-chown -R www-data:www-data /var/www/html/ca/media
-5. Installer Cannot Connect to Database
-Symptoms
-Installer says “Cannot connect to database”
-
-MySQL connection refused
-
+5.2 Providence derivatives missing
 Cause
-Incorrect hostname.
+Permissions incorrect.
 
 Fix
-Use:
+Code
+chmod -R 775 ca/media
+chown -R www-data:www-data ca/media
+6. Configuration Problems
+6.1 Wrong database host
+Fix
+Always use:
 
 Code
 mysql
-Not:
+Never localhost, 127.0.0.1, or container IPs.
 
-localhost
-
-127.0.0.1
-
-container IP
-
-These do not work inside Docker.
-
-6. “Not Found” Errors for Pages
-Symptoms
-Visiting /ca or /capublic shows 404
-
-Internal pages fail
-
-Controllers not found
-
-Cause
-Apache rewrite disabled.
-
+6.2 Wrong URL root
 Fix
-Rewrite module must be enabled:
+Providence:
 
-Code
-a2enmod rewrite
-And Apache must allow .htaccess:
+php
+__CA_URL_ROOT__ = "/ca";
+Pawtucket:
 
-Code
-<Directory /var/www/html>
-    AllowOverride All
-</Directory>
-7. Pawtucket Theme Not Loading
-Symptoms
-Pawtucket loads but looks unstyled
-
-Missing CSS, JS, images
-
-Cause
-Incorrect URL root or missing theme path.
-
-Fix
-Verify:
-
-Code
-__CA_URL_ROOT__ = "/capublic"
-And theme directory exists:
-
-Code
-capublic/themes/<yourtheme>/
-8. Providence Cannot Write Temporary Files
-Symptoms
-Installer fails
-
-Derivatives not generated
-
-Logs missing
-
-Cause
-Permissions on app/tmp.
-
-Fix
-Code
-chmod -R 775 /var/www/html/ca/app/tmp
-chmod -R 775 /var/www/html/capublic/app/tmp
-
-chown -R www-data:www-data /var/www/html/ca/app/tmp
-chown -R www-data:www-data /var/www/html/capublic/app/tmp
-9. Pawtucket Search Returns No Results
-Symptoms
-Search page loads but shows nothing
-
-Browse pages empty
-
+php
+__CA_URL_ROOT__ = "/capublic";
+7. Docker Problems
+7.1 Containers start but CA shows blank page
 Causes
-Incorrect search configuration
+PHP error
 
-Missing index
+missing extensions
 
-Incorrect URL root
-
-Fixes
-Verify /capublic routing
-
-Rebuild search index in Providence
-
-Check search.conf in Pawtucket
-
-10. Providence Installer Stuck or Repeating
-Symptoms
-Installer loops
-
-Installer restarts unexpectedly
-
-Cause
-Incorrect routing or missing rewrite.
+incorrect volume mount
 
 Fix
-Verify:
+Check logs:
 
-rewrite enabled
+Code
+docker logs ca-app
+7.2 MySQL container starts but CA cannot connect
+Causes
+MySQL still initializing
 
-/ca/install reachable
+wrong credentials
 
-__CA_URL_ROOT__ = "/ca"
+wrong hostname
 
-Summary
-Most issues are caused by:
+Fix
+Wait 10–20 seconds after startup.
+Verify credentials in configuration.php.
 
-incorrect URL roots
+8. Windows‑Specific Issues
+8.1 MySQL config mounts ignored
+Fix: use command: override.
 
-missing symlink
+8.2 Installer slow
+Fix: normal behaviour under Docker Desktop.
 
-incorrect permissions
+8.3 Bind‑mount appears but is unreadable
+Fix: avoid MySQL config mounts entirely.
 
-missing rewrite module
+9. Useful Debugging Commands
+Enter CA container
+Code
+docker exec -it ca-app bash
+Enter MySQL container
+Code
+docker exec -it ca-mysql bash
+Check MySQL logs
+Code
+docker logs ca-mysql
+Check Apache/PHP logs
+Code
+docker logs ca-app
+Restart containers
+Code
+docker-compose restart
+Rebuild environment
+Code
+docker-compose down
+docker-compose up -d --force-recreate
+10. Summary
+This troubleshooting guide covers:
 
-incorrect MySQL hostname
+MySQL startup failures
 
-This guide provides fixes for all common problems encountered when deploying CA in Docker.
+buffer pool tuning issues
 
-See upgrading.md for guidance on updating CA, PHP, or MySQL.
+config‑mount problems
+
+routing errors
+
+media symlink issues
+
+installer behaviour
+
+Docker Desktop quirks
+
+YAML indentation traps
+
+Use this document to diagnose and resolve issues quickly when working with the CollectiveAccess Docker Starter Kit.
