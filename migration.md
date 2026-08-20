@@ -1,283 +1,319 @@
-# Migration Guide (Existing CollectiveAccess → Docker)
+# Migrating an Existing CollectiveAccess Installation
 
-This document explains how to migrate an existing CollectiveAccess installation (Providence + Pawtucket) into the Docker Starter Kit. It covers the IIS-style upgrade workflow, what to copy, what not to copy, how to import your database, and how to trigger CA’s built‑in upgrade process.
+This document explains how to migrate an existing CollectiveAccess installation (Providence + Pawtucket) into the Docker Starter Kit. It covers database export/import, media transfer, configuration alignment, and common pitfalls when moving from IIS, Apache, or older Linux systems.
 
-If you are upgrading an existing Docker installation to a newer CA version, see upgrading.md.
-
-This guide is for users who already have:
-
-- a working CA installation  
-- an existing MySQL database  
-- existing media  
-- existing themes, bundles, or views  
-- existing `setup.php` and `post-setup.php`  
-
-If you are performing a **fresh install**, see `installation.md` instead.
+The goal is to provide a predictable, safe migration path that avoids data loss and ensures the Docker environment behaves identically to your previous installation.
 
 ---
 
-# 1. Overview: Two Types of Installation
+## 1. What You Can Migrate
 
-There are two fundamentally different ways to use this starter kit:
+You can migrate:
 
-### **A. Fresh Install**
-You run the Providence installer inside Docker.  
-This creates a new database, new admin account, and new configuration files.
+- Providence database  
+- Pawtucket database (if separate)  
+- Media directory (`media/`)  
+- Themes  
+- Views and bundles  
+- Custom configuration files  
+- Plugins  
+- Profile XML files  
 
-### **B. Migration (this document)**
-You already have CA running elsewhere (IIS, Apache, Linux, macOS).  
-You bring your existing:
+You **cannot** migrate:
 
-- database  
-- media  
-- configuration  
-- customisations  
+- MySQL data directories  
+- Apache/IIS configuration files  
+- PHP runtime settings  
+- Old MySQL binary logs  
 
-into Docker.
-
-This guide explains Scenario B.
+These must be recreated inside Docker.
 
 ---
 
-# 2. What You MUST Copy from Your Existing Installation
+## 2. Export Your Existing Database
 
-From your existing CA installation, copy:
+From your old server (IIS, Linux, macOS, or WAMP/XAMPP):
 
-### ✔ Providence application directory
+mysqldump -u <user> -p <database> > ca_backup.sql
+
+Code
+
+Recommended flags for large CA databases:
+
+mysqldump --single-transaction --routines --events --default-character-set=utf8mb4 \
+-u <user> -p <database> > ca_backup.sql
+
+Code
+
+This produces a portable SQL dump compatible with MySQL 8.x.
+
+---
+
+## 3. Copy the Backup Into the Project Directory
+
+Place your SQL file in the root of the starter kit:
+
+collectiveaccess-docker/
+docker-compose.yml
 ca/
-
-Code
-
-### ✔ Pawtucket application directory
 capublic/
+ca_backup.sql   ← here
 
 Code
-
-### ✔ Media directory
-ca/media/
-
-Code
-
-This is critical — it contains originals and derivatives.
-
-### ✔ Configuration files
-ca/setup.php
-ca/post-setup.php
-capublic/setup.php
-capublic/post-setup.php
-
-Code
-
-### ✔ Custom themes
-capublic/themes/<yourtheme>/
-
-Code
-
-### ✔ Custom bundles, views, or local overrides
-ca/app/conf/bundles/
-ca/app/views/
-capublic/app/conf/
-capublic/app/views/
-
-Code
-
-### ✔ Any local configuration files
-(e.g., `local.conf`, custom plugin configs)
 
 ---
 
-# 3. What You MUST NOT Copy
-
-Do **not** copy:
-
-- old PHP binaries  
-- old Apache configs  
-- old MySQL binaries  
-- old `.htaccess` files if they conflict with Docker’s routing  
-- cache directories (`app/tmp`)  
-- log directories  
-
-These will be regenerated automatically.
-
----
-
-# 4. Prepare Your Docker Environment
-
-Start the Docker environment:
+## 4. Start the Docker Environment
 
 docker-compose up -d
 
 Code
 
-This creates:
+This launches:
 
-- `ca-app` (Apache + PHP)
+- `ca-app` (Apache + PHP + CA)
 - `ca-mysql` (MySQL 8.x)
 
-Stop the containers before replacing files:
+---
 
-docker-compose down
+## 5. Import the Database Into Docker
+
+Run:
+
+docker exec -i ca-mysql mysql -u root -prootpass ca < ca_backup.sql
 
 Code
+
+This restores all tables, metadata, and records.
+
+If your old installation used a different database name, adjust accordingly.
 
 ---
 
-# 5. Import Your Existing MySQL Database
+## 6. Copy Your Media Directory
 
-Export your existing database from IIS/Linux/macOS:
+Your old installation has a directory like:
 
-mysqldump -u root -p collectiveaccess > backup.sql
-
-Code
-
-Import it into Docker:
-
-docker exec -i ca-mysql mysql -u root -proot collectiveaccess < backup.sql
+/path/to/old/ca/media/
 
 Code
 
-Your users, passwords, roles, metadata, and objects are now inside Docker.
+Copy it into the new CA directory:
+
+collectiveaccess-docker/ca/media/
+
+Code
+
+If the directory already exists, replace it.
 
 ---
 
-# 6. Replace the Application Directories
+## 7. Verify the Pawtucket Symlink
 
-You now replace the CA application files inside Docker with your existing ones.
-
-If your repo bind‑mounts the directories (recommended), simply copy your existing CA directories into:
-
-docker/ca/
-docker/capublic/
-
-Code
-
-If you prefer replacing inside the container:
+Inside the CA container:
 
 docker exec -it ca-app bash
-cd /var/www/html
+ls -l /var/www/html/capublic/media
 
-mv ca ca_old
-mv capublic capublic_old
+Code
 
-cp -R /path/to/your/ca /var/www/html/ca
-cp -R /path/to/your/capublic /var/www/html/capublic
+Expected:
+
+media -> /var/www/html/ca/media
+
+Code
+
+If missing:
+
+rm -rf /var/www/html/capublic/media
+ln -s /var/www/html/ca/media /var/www/html/capublic/media
 
 Code
 
 ---
 
-# 7. Apply Docker-Specific Fixes
+## 8. Update Configuration Files
 
-Your existing CA installation was configured for IIS or bare‑metal Apache.  
-Docker requires a few adjustments.
+Your old installation may have custom settings in:
 
-### ✔ Update MySQL hostname
-In both `setup.php` files:
+- `app/conf/local/configuration.php`
+- `app/conf/local/app.conf`
+- `app/conf/local/search.conf`
+- `app/conf/local/media_processing.conf`
 
-define("CA_DB_HOST", "mysql");
+Copy these into:
+
+ca/app/conf/local/
+capublic/app/conf/local/
 
 Code
 
-### ✔ Update URL roots
+Then update:
+
+### Database host
+CA_DB_HOST = "mysql";
+
+Code
+
+### URL roots
+Providence:
+CA_URL_ROOT = "/ca";
+
+Code
+
+Pawtucket:
+CA_URL_ROOT = "/capublic";
+
+Code
+
+### Media directory
+Should remain:
+CA_MEDIA_ROOT = "/var/www/html/ca/media";
+
+Code
+
+---
+
+## 9. Restart the Containers
+
+docker-compose down
+docker-compose up -d
+
+Code
+
+This reloads configuration and ensures CA sees the restored database.
+
+---
+
+## 10. Log In and Verify
+
 Providence:
 
-```php
-define("__CA_URL_ROOT__", "/ca");
+http://localhost:8080/ca
+
+Code
+
 Pawtucket:
 
-php
-define("__CA_URL_ROOT__", "/capublic");
-✔ Recreate media symlink
-Inside container:
+http://localhost:8080/capublic
 
 Code
-rm -rf /var/www/html/capublic/media
-ln -s /var/www/html/ca/media /var/www/html/capublic/media
-✔ Fix permissions
+
+Check:
+
+- media loads  
+- thumbnails appear  
+- search works  
+- records display correctly  
+- themes load  
+- plugins behave normally  
+
+---
+
+## 11. Important Notes About MySQL Migration
+
+### MySQL data directories cannot be migrated
+You **must not** copy your old MySQL data directory into Docker.  
+MySQL data directories are not portable between:
+
+- versions  
+- distributions  
+- operating systems  
+- storage engines  
+
+This will cause:
+
+- `binlog.index` errors  
+- permission failures  
+- corrupted tables  
+- MySQL refusing to start  
+
+Always migrate using **SQL dumps**, never raw data directories.
+
+---
+
+### Switching MySQL images requires deleting the volume
+If you change the MySQL image (Debian → Alpine or vice‑versa):
+
+docker volume rm collectiveaccess-docker_mysql_data
+
 Code
-chmod -R 775 /var/www/html/ca/app/tmp
-chmod -R 775 /var/www/html/capublic/app/tmp
-chown -R www-data:www-data /var/www/html/ca/app/tmp
-chown -R www-data:www-data /var/www/html/capublic/app/tmp
-✔ Ensure Apache rewrite is enabled
-The Dockerfile already does this.
 
-8. Restart the Application
-Start the containers again:
+This is normal and unavoidable.
 
-Code
-docker-compose up -d
-9. Trigger the CollectiveAccess Upgrade Process
-Visit Providence:
+---
+
+### Buffer pool tuning is handled via `command:`
+The starter kit uses:
+
+command: --innodb-buffer-pool-size=1G
 
 Code
-http://localhost:8080/ca
-If your existing database schema is older than the CA version you copied:
 
-CA will detect the version change
+This ensures consistent performance across Windows, macOS, and Linux.
 
-CA will prompt you to run the upgrade
+---
 
-CA will apply migrations automatically
+## 12. Migrating Pawtucket Themes
 
-This is identical to the IIS workflow:
+Copy your custom theme:
 
-old directories renamed
+old_install/capublic/themes/<yourtheme>/
 
-new directories put in place
+Code
 
-CA upgrades the database
+into:
 
-users and passwords remain intact
+collectiveaccess-docker/capublic/themes/<yourtheme>/
 
-10. Verify the Migration
-✔ Providence loads
-✔ Pawtucket loads
-✔ Media loads
-✔ Login works
-✔ Browse/search works
-✔ Custom themes load
-✔ No redirect loops
-✔ No missing derivatives
-If anything fails, see troubleshooting.md.
+Code
 
-11. Rollback Strategy
-If something goes wrong:
+Then update:
 
-Stop containers
+capublic/app/conf/local/app.conf
 
-Restore your old CA directories
+Code
 
-Restore your old MySQL dump
+Set:
 
-Start containers again
+theme = "<yourtheme>"
 
-Docker makes rollback trivial because:
+Code
 
-the database is in a volume
+---
 
-the application files are bind‑mounted
+## 13. Migrating Providence Customizations
 
-nothing is overwritten permanently
+Copy:
 
-Summary
-Migrating an existing CA installation into Docker is straightforward:
+- custom views  
+- custom bundles  
+- custom display templates  
+- custom profile XML  
+- custom plugins  
 
-copy your existing CA directories
+into the corresponding directories under:
 
-import your existing database
+collectiveaccess-docker/ca/
 
-apply Docker-specific routing fixes
+Code
 
-recreate the media symlink
+Restart the container afterwards.
 
-restart containers
+---
 
-let CA run its upgrade process
+## 14. Summary
 
-This workflow mirrors the IIS upgrade method and preserves all users, passwords, media, and customisations.
+Migrating to the Docker Starter Kit involves:
 
-For fresh installs, see installation.md.
-For routing details, see routing.md.
-For media handling, see media-symlink.md.
-For upgrade details, see upgrading.md.
+1. Exporting your old database  
+2. Importing it into the Docker MySQL container  
+3. Copying your media directory  
+4. Copying custom configuration files  
+5. Updating URL roots and database hostnames  
+6. Restarting the environment  
+7. Verifying Providence and Pawtucket  
+
+This process produces a clean, modern, reproducible CA environment with improved performance and easier maintenance.
+
+See `upgrading.md` for version‑to‑version upgrade guidance.
