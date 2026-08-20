@@ -1,45 +1,26 @@
-markdown
 # Installation Guide
 
-This document explains how to install CollectiveAccess (Providence + Pawtucket) using the Docker Starter Kit. It covers container setup, running the installer, creating the admin account, and verifying the environment.
+This document explains how to install CollectiveAccess (Providence + Pawtucket) using the Docker Starter Kit. It covers container startup, running the installer, creating the database, and verifying the environment.
+
+The goal is to provide a clean, predictable installation workflow that works reliably across Windows, macOS, and Linux.
 
 ---
 
-## Prerequisites
+## 1. Prerequisites
 
 Before you begin, ensure you have:
 
-- Docker (latest version)
+- Docker Desktop (Windows/macOS) or Docker Engine (Linux)
 - Docker Compose
-- Git (optional but recommended)
 - A web browser
 
 No PHP, MySQL, or Apache installation is required on the host system.
 
 ---
 
-## 1. Clone the Starter Kit
-
-Clone the repository or download it as a ZIP:
-
-git clone https://github.com/BasilTas/collectiveaccess-docker-starter-kit.git (github.com in Bing)
-cd collectiveaccess-docker-starter-kit/docker
-
-Code
-
-The `docker` folder contains:
-
-- `Dockerfile`
-- `docker-compose.yml`
-- `php.ini`
-
-These build the CA environment.
-
----
-
 ## 2. Start the Containers
 
-Run:
+From the project root:
 
 docker-compose up -d
 
@@ -47,14 +28,19 @@ Code
 
 This launches:
 
-- `ca-app` (Apache + PHP 8.4 + Providence + Pawtucket)
-- `ca-mysql` (MySQL 8.x)
+- **ca-app** (Apache + PHP + Providence + Pawtucket)
+- **ca-mysql** (MySQL 8.x with tuned buffer pool)
 
 You can verify they are running:
 
 docker ps
 
 Code
+
+Expected:
+
+- `ca-app` → Up  
+- `ca-mysql` → Up  
 
 ---
 
@@ -80,17 +66,17 @@ mysql
 Code
 
 **Database name:**
-collectiveaccess
+ca
 
 Code
 
 **Username:**
-root
+causer
 
 Code
 
 **Password:**
-root
+capass
 
 Code
 
@@ -102,14 +88,21 @@ These values match the `docker-compose.yml` configuration.
 
 The installer will:
 
-- create all required tables
-- populate initial configuration
-- generate default roles
-- create the admin user
-- verify media directories
-- verify PHP extensions
+- create all required tables  
+- populate initial configuration  
+- generate default roles  
+- create the admin user  
+- verify media directories  
+- verify PHP extensions  
 
-When finished, it will display your login credentials.
+This process may take **~800 seconds on Windows** due to Docker Desktop filesystem overhead.  
+This is normal and not a sign of misconfiguration.
+
+Typical install times:
+
+- Windows + Docker Desktop: ~800 seconds  
+- WSL2: ~300–400 seconds  
+- Native Linux: ~200–300 seconds  
 
 ---
 
@@ -145,7 +138,7 @@ If media thumbnails appear, the symlink is working.
 
 Inside the container:
 
-docker exec -it ca-app bash
+docker exec -it ca-container bash
 ls -l /var/www/html/capublic/media
 
 Code
@@ -156,7 +149,7 @@ media -> /var/www/html/ca/media
 
 Code
 
-If not, recreate the symlink (see `media-symlink.md`).
+This ensures Pawtucket uses Providence’s media directory.
 
 ---
 
@@ -176,20 +169,37 @@ Code
 
 These overrides prevent redirect loops and routing errors.
 
-See `routing.md` for details.
+---
+
+## 10. MySQL Performance Verification
+
+To confirm the tuned buffer pool size:
+
+docker exec -it ca-mysql bash
+mysql -u root -prootpass -e "SHOW VARIABLES LIKE 'innodb_buffer_pool_size';"
+
+Code
+
+Expected:
+
+1073741824
+
+Code
+
+This value is applied via the `command:` directive in `docker-compose.yml`.
 
 ---
 
-## 10. Installation Complete
+## 11. Installation Complete
 
 You now have:
 
-- Providence running under `/ca`
-- Pawtucket running under `/capublic`
-- MySQL connected
-- Media shared via symlink
-- PHP 8.4 fully supported
-- Apache rewrite enabled
-- A reproducible CA environment
+- Providence running under `/ca`  
+- Pawtucket running under `/capublic`  
+- MySQL 8.x with a tuned 1GB buffer pool  
+- Media shared via symlink  
+- PHP 8.x with CA‑specific overrides  
+- Apache rewrite enabled  
+- A reproducible, cross‑platform CA environment  
 
-Proceed to the configuration guide for next steps.
+Proceed to the configuration and routing guides for next step
