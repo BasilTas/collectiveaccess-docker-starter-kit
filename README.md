@@ -1,120 +1,210 @@
-# collectiveaccess-docker-starter-kit
-Modern Docker setup for CollectiveAccess (Providence + Pawtucket) with PHP 8.4, MySQL, correct routing, symlinked media, and full documentation.
+# CollectiveAccess Docker Starter Kit
 
-CollectiveAccess Docker Starter Kit
-A modern, clean Docker setup for CollectiveAccess Providence and Pawtucket, designed for museums, archives, libraries, and researchers who want a reliable, reproducible CA environment without the pain of manual installation.
+A modern, reproducible Docker environment for running **CollectiveAccess** (Providence + Pawtucket) with:
 
-This starter kit provides:
+- PHP 8.x  
+- Apache  
+- MySQL 8.x (tuned)  
+- Correct routing  
+- Shared media directory  
+- Stable cross‑platform behaviour  
+- Clean, predictable configuration  
 
-PHP 8.4 (fully compatible with current CA releases)
+This starter kit is designed for museums, archives, libraries, researchers, and developers who want a reliable CA environment without the complexity of manual installation.
 
-MySQL 8.x
+---
 
-Apache with rewrite enabled
+## Features
 
-Providence served at /ca
+- Providence and Pawtucket served from a single Apache/PHP container  
+- MySQL 8.x with a **1GB InnoDB buffer pool** for fast metadata and search performance  
+- Correct URL routing (`/ca` and `/capublic`)  
+- Shared media directory via symlink  
+- Clean directory layout matching CA best practices  
+- Cross‑platform support (Windows, macOS, Linux)  
+- Fully documented architecture and configuration  
+- Reproducible builds using Docker Compose  
 
-Pawtucket served at /capublic
+---
 
-Shared media directory via Linux symlink
+## Quick Start
 
-Correct URL routing (no redirect loops)
+Clone the repository:
 
-Clean, documented configuration files
+git clone https://github.com/<yourname>/collectiveaccess-docker-starter-kit
+cd collectiveaccess-docker-starter-kit
 
-A simple, reproducible Docker workflow
-
-This repository focuses on documentation and configuration, not distributing a prebuilt container image. You build your own CA environment using the included files.
-
-Quick Start
-1. Clone this repository
 Code
-git clone https://github.com/BasilTas/collectiveaccess-docker-starter-kit.git
-cd collectiveaccess-docker-starter-kit/docker
-2. Start the containers
-Code
+
+Start the environment:
+
 docker-compose up -d
-This launches:
-
-ca-app (Apache + PHP 8.4 + Providence + Pawtucket)
-
-ca-mysql (MySQL 8.x)
-
-3. Install Providence
-Open your browser:
 
 Code
-http://localhost:8080/ca/install
-Run the installer, create your admin account, and complete setup.
 
-4. Access Providence
+Run the Providence installer:
+
+http://localhost:8080/ca/install
+
+Code
+
+Use these database settings:
+
+Host: mysql
+Database: ca
+User: causer
+Password: capass
+
+Code
+
+After installation:
+
+- Providence → `http://localhost:8080/ca`  
+- Pawtucket → `http://localhost:8080/capublic`  
+
+---
+
+## Directory Layout
+
+collectiveaccess-docker/
+│
+├── ca/               ← Providence
+│   ├── app/
+│   ├── media/
+│   ├── themes/
+│   ├── vendor/
+│   ├── setup.php
+│   └── post-setup.php
+│
+├── capublic/         ← Pawtucket
+│   ├── app/
+│   ├── media → symlink to ../ca/media
+│   ├── themes/
+│   ├── vendor/
+│   ├── setup.php
+│   └── post-setup.php
+│
+├── php.ini           ← PHP overrides
+├── apache.conf       ← Apache routing config
+├── docker-compose.yml
+└── docs/             ← Full documentation set
+
+Code
+
+---
+
+## MySQL Performance Tuning
+
+The MySQL container uses:
+
+mysql/mysql-server:8.0
+
+Code
+
+The InnoDB buffer pool is set via `command:`:
+
+```yaml
+command: --innodb-buffer-pool-size=1G
+This method is:
+
+reliable on Windows, macOS, and Linux
+
+independent of Alpine/Debian differences
+
+guaranteed to apply
+
+essential for CA performance
+
+Verify the buffer pool:
+
+Code
+docker exec -it ca-mysql bash
+mysql -u root -prootpass -e "SHOW VARIABLES LIKE 'innodb_buffer_pool_size';"
+Expected:
+
+Code
+1073741824
+Routing
+Providence:
+
 Code
 http://localhost:8080/ca
-5. Access Pawtucket
+Pawtucket:
+
 Code
 http://localhost:8080/capublic
-Included Files
-docker/Dockerfile
-Builds a modern PHP 8.4 + Apache environment with all required CA extensions.
+URL roots are set automatically by the installer:
 
-docker/docker-compose.yml
-Defines the CA application container and MySQL database container.
+Providence:
 
-docker/php.ini
-Provides recommended PHP settings for CA (upload limits, memory, timezone, etc).
+php
+__CA_URL_ROOT__ = "/ca";
+Pawtucket:
 
-Important Fixes Included
-This starter kit includes solutions for several long‑standing CA deployment issues:
-
-Correct __CA_URL_ROOT__ for Providence (/ca)
-
-Correct __CA_URL_ROOT__ for Pawtucket (/capublic)
-
-Symlinked media directory (capublic/media → ca/media)
-
-Correct MySQL hostname (mysql) inside Docker
-
-Correct Apache rewrite rules
-
-Correct permissions for CA’s app/tmp directories
-
-Fix for infinite login redirect loops
-
-Correct installer URL routing
-
-These fixes are documented in detail in the /docs folder.
-
-Full Documentation
-The full professional documentation set is available in:
+php
+__CA_URL_ROOT__ = "/capublic";
+Media Handling
+Pawtucket uses a symlink:
 
 Code
-docs/
-It includes:
+capublic/media → ca/media
+This ensures:
 
-Architecture overview
+no duplication
 
-Installation guide
+correct thumbnails
 
-Configuration guide
+correct derivatives
 
-Routing and URL root fixes
+correct viewer behaviour
 
-Media symlink explanation
+Documentation
+Full documentation is available in the /docs directory:
 
-Troubleshooting
+architecture.md — container layout & directory structure
 
-Upgrading CA
+installation.md — step‑by‑step installation
 
-FAQ
+configuration.md — PHP, MySQL, Apache, CA settings
 
-This documentation is designed to help both beginners and institutions deploying CA in production.
+routing.md — URL roots, rewrite rules, aliases
 
-Microsoft CoPilot assisted in drafting this documentation
+media-symlink.md — shared media directory
 
-Contributing
-If you find improvements or want to add examples, feel free to open an issue or submit a pull request.
-This starter kit is intended to help the CollectiveAccess community modernise and simplify deployments.
+migrating.md — migrating existing CA installations
+
+upgrading.md — safe upgrade workflow
+
+troubleshooting.md — common issues & fixes
+
+faq.md — quick answers
+
+Resetting the Environment
+If you need to reset MySQL:
+
+Code
+docker-compose down
+docker volume rm collectiveaccess-docker_mysql_data
+docker-compose up -d
+Then re-run the installer.
+
+Notes for Windows Users
+When running under Docker Desktop:
+
+CA installer may take ~800 seconds (normal)
+
+MySQL config mounts may be ignored
+
+Buffer pool must be set via command:
+
+Media symlink works normally
+
+Runtime performance is excellent once installed
 
 License
-This project is provided as‑is for educational and deployment use.
-CollectiveAccess itself is licensed under the GNU Public License (GPL).
+This starter kit is provided as-is for educational and institutional use.
+See CollectiveAccess licensing for application-specific terms.
+
+Contributing
+Pull requests are welcome.
+If you have improvements, documentation updates, or fixes, feel free to submit them.
