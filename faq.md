@@ -1,6 +1,6 @@
 # Frequently Asked Questions (FAQ)
 
-This document answers common questions about using the CollectiveAccess Docker Starter Kit. It covers installation, configuration, routing, media handling, upgrades, and general usage patterns.
+This document answers common questions about using the CollectiveAccess Docker Starter Kit. It covers installation, configuration, routing, media handling, MySQL behaviour, performance expectations, and general usage patterns.
 
 ---
 
@@ -12,10 +12,10 @@ It provides a modern, reproducible Docker environment for running:
 - Providence (backend)
 - Pawtucket (frontend)
 - MySQL 8.x
-- PHP 8.4
+- PHP 8.x
 - Apache with rewrite enabled
 
-It includes fixes for routing, media handling, and configuration issues that commonly affect CA installations.
+It includes fixes for routing, media handling, MySQL tuning, and configuration issues that commonly affect CA installations.
 
 ---
 
@@ -63,35 +63,56 @@ The database runs inside Docker and is accessed only by the CA application conta
 
 ---
 
-## Configuration Questions
+### **Why does the installer take ~800 seconds on Windows?**
+Because Docker Desktop adds significant filesystem overhead.  
+The CA installer is CPU‑bound and reads thousands of small PHP/XML files.
 
-### **Why do I need to set `__CA_URL_ROOT__` manually?**
-Auto‑detection fails in Docker because:
+Typical install times:
 
-- CA is installed in subdirectories (`/ca`, `/capublic`)
-- Apache uses aliases
-- Docker changes the document root
+- **Windows + Docker Desktop:** ~800 seconds  
+- **WSL2:** ~300–400 seconds  
+- **Native Linux:** ~200–300 seconds  
 
-Hard‑coding the correct URL root prevents redirect loops and routing errors.
+This is normal and not a sign of misconfiguration.
 
 ---
 
-### **Where do I set `__CA_URL_ROOT__`?**
+## Configuration Questions
+
+### **Why is the MySQL buffer pool set using `command:` instead of a config file?**
+Because MySQL config file mounts are unreliable on Windows.  
+Some MySQL images silently ignore mounted config files.
+
+The starter kit uses:
+
+```yaml
+command: --innodb-buffer-pool-size=1G
+This method is:
+
+reliable
+
+cross‑platform
+
+independent of Alpine/Debian differences
+
+guaranteed to apply
+
+Where do I set __CA_URL_ROOT__?
 In:
 
-ca/app/post-setup.php
-capublic/app/post-setup.php
-
 Code
-
+ca/app/conf/local/configuration.php
+capublic/app/conf/local/configuration.php
 Providence:
 
-```php
-define("__CA_URL_ROOT__", "/ca");
+php
+__CA_URL_ROOT__ = "/ca";
 Pawtucket:
 
 php
-define("__CA_URL_ROOT__", "/capublic");
+__CA_URL_ROOT__ = "/capublic";
+These values match the Apache routing.
+
 Why does Pawtucket need a media symlink?
 Because:
 
@@ -101,10 +122,10 @@ Pawtucket must read the same files
 
 Pawtucket does not generate derivatives
 
-CA’s media loader supports symlinks
+The symlink ensures consistent media access:
 
-The symlink ensures consistent media access.
-
+Code
+capublic/media → ca/media
 Routing Questions
 Why do I get an infinite redirect loop?
 Cause:
@@ -114,13 +135,11 @@ incorrect __CA_URL_ROOT__
 Fix:
 
 php
-define("__CA_URL_ROOT__", "/ca");
+__CA_URL_ROOT__ = "/ca";
 Why does Pawtucket load Providence pages?
 Cause:
 
-missing Apache alias
-
-incorrect base directory
+incorrect Apache alias
 
 incorrect URL root
 
@@ -163,46 +182,54 @@ Code
 ca/media/
 Pawtucket reads from the symlink.
 
-Upgrade Questions
-How do I upgrade CollectiveAccess?
-Replace CA files
+MySQL Questions
+Why did my database disappear after switching MySQL images?
+Because MySQL data directories are not portable between distributions.
 
-Run composer install
-
-Restart containers
-
-Clear caches
-
-Visit /ca to apply migrations
-
-Will I lose my database during upgrades?
-No.
-The database is stored in a Docker volume:
+If you switch images (Debian → Alpine or vice‑versa), you must delete the old volume:
 
 Code
-ca-mysql-data
-It persists across rebuilds.
+docker volume rm collectiveaccess-docker_mysql_data
+This is normal and unavoidable.
 
-Will I lose my media during upgrades?
-No.
-Media lives in the mounted directory:
-
+How do I back up the database?
 Code
-ca/media/
-It is not inside the container filesystem.
-
+docker exec ca-mysql mysqldump -u root -prootpass ca > backup.sql
+How do I restore a backup?
+Code
+docker exec -i ca-mysql mysql -u root -prootpass ca < backup.sql
 Docker Questions
 How do I rebuild the environment?
 Code
 docker-compose down
-docker-compose build
-docker-compose up -d
+docker-compose up -d --force-recreate
 How do I access the CA container?
 Code
-docker exec -it ca-app bash
-How do I back up the database?
+docker exec -it ca-container bash
+How do I access the MySQL container?
 Code
-docker exec ca-mysql mysqldump -u root -proot collectiveaccess > backup.sql
+docker exec -it ca-mysql bash
+Performance Questions
+Why does CA feel faster after tuning MySQL?
+Because:
+
+metadata loads stay hot
+
+index pages stay in memory
+
+first-page loads stop stalling
+
+search performance improves
+
+disk thrashing disappears
+
+Runtime performance improves even though installer time does not.
+
+Why is the installer still slow?
+Because the installer is CPU‑bound and dominated by PHP parsing thousands of files.
+
+MySQL tuning improves runtime performance, not installer duration.
+
 Miscellaneous Questions
 Can I use custom themes?
 Yes.
