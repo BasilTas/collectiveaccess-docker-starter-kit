@@ -13,13 +13,14 @@ services:
       - mysql
 
   mysql:
-    image: mysql:8.0
+    image: mysql/mysql-server:8.0
     container_name: ca-mysql
     environment:
       MYSQL_ROOT_PASSWORD: rootpass
       MYSQL_DATABASE: ca
       MYSQL_USER: causer
       MYSQL_PASSWORD: capass
+    command: --innodb-buffer-pool-size=1G
     volumes:
       - mysql_data:/var/lib/mysql
 
