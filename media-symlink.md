@@ -22,7 +22,7 @@ This ensures:
 - correct backend access  
 - correct thumbnail and viewer behaviour  
 
-This symlink mirrors the recommended CA deployment pattern used on IIS, Linux, and macOS.
+This symlink mirrors the recommended CA deployment pattern used on Linux, macOS, and Windows (via Docker).
 
 ---
 
@@ -154,6 +154,18 @@ chmod -R 775 /var/www/html/ca/media
 chown -R www-data:www-data /var/www/html/ca/media
 
 Code
+
+---
+
+## Windows Notes
+
+When running under Docker Desktop on Windows:
+
+- The media symlink works normally  
+- Windows bind‑mount quirks do **not** affect the symlink  
+- All media operations occur inside the Linux container filesystem  
+
+This makes media handling one of the most stable parts of the CA stack.
 
 ---
 
