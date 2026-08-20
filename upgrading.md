@@ -1,78 +1,164 @@
-# Upgrading CollectiveAccess, PHP, and MySQL
+# Upgrading CollectiveAccess in Docker
 
-This document explains how to safely upgrade CollectiveAccess, PHP, MySQL, and related components inside the Docker Starter Kit. It covers version compatibility, recommended upgrade paths, and how to rebuild containers without losing data.
+This document explains how to upgrade a CollectiveAccess installation running inside the Docker Starter Kit. It covers upgrading Providence, Pawtucket, MySQL, PHP, and the Docker environment itself, while preserving your database, media, and customizations.
 
-If you are upgrading from an external IIS/Apache installation into Docker, see migration.md.
----
-
-## Overview
-
-Upgrading in Docker is simpler than traditional installations because:
-
-- the application environment is defined by the Dockerfile  
-- the database persists in a volume  
-- containers can be rebuilt cleanly  
-- configuration files remain untouched  
-
-This guide covers upgrades for:
-
-- CollectiveAccess (Providence + Pawtucket)
-- PHP
-- MySQL
-- Composer dependencies
-- Docker containers
+The goal is to provide a safe, predictable upgrade workflow that avoids data loss and ensures the new version behaves identically to the old one.
 
 ---
 
-# 1. Upgrading CollectiveAccess
+# 1. What an Upgrade Involves
 
-## Step 1 — Download the new CA release
+Upgrading CollectiveAccess inside Docker requires:
 
-Download the latest Providence and Pawtucket versions from:
+- replacing CA application files  
+- preserving configuration files  
+- preserving media  
+- preserving custom themes, bundles, and views  
+- keeping the existing MySQL data volume  
+- allowing CA to run its internal database migrations  
 
-https://github.com/collectiveaccess (github.com in Bing)
+This workflow is similar to upgrading CA on a traditional server, but simplified by Docker’s reproducibility.
+
+---
+
+# 2. Files You MUST Preserve
+
+These files and directories must be kept during any upgrade:
+
+ca/setup.php
+ca/post-setup.php
+ca/media/
+ca/app/conf/local/
+ca/themes/ (if custom)
+ca/app/conf/bundles/ (if custom)
+ca/app/views/ (if custom)
+
+capublic/setup.php
+capublic/post-setup.php
+capublic/app/conf/local/
+capublic/themes/ (if custom)
 
 Code
 
-Replace the contents of:
+These contain:
 
-/var/www/html/ca
-/var/www/html/capublic
+- database credentials  
+- URL root overrides  
+- media  
+- customizations  
+- local configuration  
+- theme settings  
+
+Do **not** overwrite these during an upgrade.
+
+---
+
+# 3. Files You MUST Replace
+
+Replace the following with the new version:
+
+ca/app/
+ca/vendor/
+ca/themes/ (default themes only)
+capublic/app/
+capublic/vendor/
+capublic/themes/ (default themes only)
 
 Code
 
-while preserving:
+These contain the CA core codebase.
+
+---
+
+# 4. Files You MUST NOT Copy
+
+Do **not** copy:
+
+ca/app/tmp/
+ca/app/log/
+capublic/app/tmp/
+capublic/app/log/
+.htaccess
+old Apache/IIS configs
+old PHP configs
+
+Code
+
+These are environment‑specific and should be regenerated.
+
+---
+
+# 5. Upgrade Workflow
+
+## Step 1 — Stop the environment
+
+docker-compose down
+
+Code
+
+This preserves the MySQL volume.
+
+---
+
+## Step 2 — Replace CA application files
+
+Extract the new CA version and copy:
+
+- `app/`
+- `vendor/`
+- default themes
+
+into:
+
+collectiveaccess-docker/ca/
+collectiveaccess-docker/capublic/
+
+Code
+
+Do **not** overwrite:
 
 - `setup.php`
 - `post-setup.php`
-- `media/` directory
-- `app/tmp/` directory
-- custom themes
-- custom views
-- custom configuration files
+- `media/`
+- `app/conf/local/`
+- custom themes  
+- custom bundles/views  
 
 ---
 
-## Step 2 — Reinstall vendor dependencies
+## Step 3 — Verify the Pawtucket media symlink
 
 Inside the container:
 
 docker exec -it ca-app bash
-cd /var/www/html/ca
-composer install
-
-cd /var/www/html/capublic
-composer install
+ls -l /var/www/html/capublic/media
 
 Code
 
-This ensures compatibility with PHP 8.4 and modern CA releases.
+Expected:
+
+media -> /var/www/html/ca/media
+
+Code
+
+If missing:
+
+rm -rf /var/www/html/capublic/media
+ln -s /var/www/html/ca/media /var/www/html/capublic/media
+
+Code
 
 ---
 
-## Step 3 — Run database migrations
+## Step 4 — Start the environment
 
-Providence automatically applies migrations on first load.
+docker-compose up -d
+
+Code
+
+---
+
+## Step 5 — Allow CA to run database migrations
 
 Visit:
 
@@ -80,192 +166,157 @@ http://localhost:8080/ca
 
 Code
 
-If migrations are required, CA will prompt you.
+If CA detects a version change, it will:
+
+- prompt for database upgrade  
+- apply schema migrations  
+- update metadata  
+- rebuild caches  
+
+This process is automatic.
 
 ---
 
-## Step 4 — Clear caches
+# 6. Upgrading MySQL
 
-Inside the container:
+## Important: MySQL data directories are NOT portable
 
-rm -rf /var/www/html/ca/app/tmp/*
-rm -rf /var/www/html/capublic/app/tmp/*
+You **cannot** upgrade MySQL by switching images without deleting the data volume.
+
+If you switch MySQL images (Debian ↔ Alpine):
+
+docker volume rm collectiveaccess-docker_mysql_data
 
 Code
+
+This wipes the database.
+
+### Safe MySQL upgrade path
+
+1. Export your database:
+docker exec ca-mysql mysqldump -u root -prootpass ca > backup.sql
+
+Code
+
+2. Change the MySQL image in `docker-compose.yml`
+
+3. Delete the old volume:
+docker volume rm collectiveaccess-docker_mysql_data
+
+Code
+
+4. Start the new MySQL container:
+docker-compose up -d
+
+Code
+
+5. Import your backup:
+docker exec -i ca-mysql mysql -u root -prootpass ca < backup.sql
+
+Code
+
+This is the only safe way to upgrade MySQL.
 
 ---
 
-# 2. Upgrading PHP
+# 7. Upgrading PHP or Apache
 
-The PHP version is defined in the Dockerfile:
+To upgrade PHP or Apache:
 
-FROM php:8.4-apache
-
-Code
-
-To upgrade:
-
-1. Edit the Dockerfile to the desired PHP version  
-2. Rebuild the container:
-
+1. Edit the Dockerfile to use a newer base image  
+2. Rebuild the CA container:
 docker-compose build --no-cache
 docker-compose up -d
 
 Code
 
-### Notes
-
-- CA supports modern PHP versions (8.1–8.4)  
-- Always run `composer install` after upgrading PHP  
-- Some extensions may require updates  
+Your CA files and MySQL data remain intact.
 
 ---
 
-# 3. Upgrading MySQL
+# 8. Upgrading the Docker Starter Kit Itself
 
-The MySQL version is defined in `docker-compose.yml`:
+If the starter kit receives updates:
 
-image: mysql:8
+- new `docker-compose.yml`
+- new `php.ini`
+- new `apache.conf`
+- new documentation
 
-Code
+You may safely replace these files **except**:
 
-To upgrade:
-
-1. Change the version (e.g., `mysql:8.4`)  
-2. Stop containers:
-
-docker-compose down
-
-Code
-
-3. Start containers:
-
-docker-compose up -d
-
-Code
-
-### Important
-
-Your database is stored in a Docker volume:
-
-ca-mysql-data
-
-Code
-
-This volume is **not deleted** unless you explicitly remove it.
-
-If MySQL performs an internal upgrade, it will do so automatically on startup.
+- your CA application directories  
+- your MySQL volume  
+- your media directory  
 
 ---
 
-# 4. Upgrading Composer Dependencies
+# 9. Common Upgrade Problems
 
-Inside the container:
-
-docker exec -it ca-app bash
-cd /var/www/html/ca
-composer update
-
-cd /var/www/html/capublic
-composer update
-
-Code
-
-### When to update
-
-- after upgrading PHP  
-- after upgrading CA  
-- when security patches are released  
-
----
-
-# 5. Rebuilding Containers Safely
-
-To rebuild without losing data:
-
-docker-compose down
-docker-compose build
-docker-compose up -d
-
-Code
-
-Your database persists because it lives in a volume.
-
-Your media persists because it lives in the mounted directory.
-
-Your configuration persists because it lives in the repo.
-
----
-
-# 6. Backing Up Before Upgrading
-
-### Database backup
-
-docker exec ca-mysql mysqldump -u root -proot collectiveaccess > backup.sql
-
-Code
-
-### Media backup
-
-Copy:
-
-ca/media/
-
-Code
-
-### Configuration backup
-
-Copy:
-
-setup.php
-post-setup.php
-themes/
-views/
-
-Code
-
----
-
-# 7. Common Upgrade Issues
-
-### Providence fails to load after upgrade
+## 9.1 CA reports “database not installed”
 Cause:
-- missing vendor dependencies
+- MySQL volume was deleted  
+- MySQL failed to start  
+- wrong database host
 
 Fix:
-composer install
-
-Code
-
-### Pawtucket shows blank pages
-Cause:
-- missing theme files
-- missing symlink
-
-Fix:
-- restore theme
-- recreate symlink
-
-### MySQL refuses connection
-Cause:
-- version mismatch
-
-Fix:
-- verify `mysql` hostname
-- check volume compatibility
+- ensure MySQL is running  
+- use hostname `mysql`  
+- re-import backup if needed  
 
 ---
 
-# Summary
+## 9.2 MySQL fails after switching images
+Cause:
+- incompatible data directory
 
-Upgrading in Docker is safe and predictable:
+Fix:
+docker volume rm collectiveaccess-docker_mysql_data
 
-- rebuild containers anytime  
-- database persists  
-- media persists  
-- configuration persists  
-- CA migrations run automatically  
+Code
 
-Follow this guide to upgrade CA, PHP, MySQL, and dependencies without downtime or data loss.
+---
 
-See `faq.md` for additional upgrade-related questions.
+## 9.3 Pawtucket thumbnails broken
+Cause:
+- symlink missing
+
+Fix:
+ln -s /var/www/html/ca/media /var/www/html/capublic/media
+
+Code
+
+---
+
+## 9.4 Redirect loops after upgrade
+Cause:
+- overwritten `configuration.php`
+
+Fix:
+Providence:
+```php
+__CA_URL_ROOT__ = "/ca";
+Pawtucket:
+
+php
+__CA_URL_ROOT__ = "/capublic";
+10. Summary
+Upgrading CA inside Docker requires:
+
+preserving configuration and media
+
+replacing CA core files
+
+keeping the MySQL volume
+
+allowing CA to run migrations
+
+avoiding raw MySQL directory migration
+
+using SQL dumps for MySQL upgrades
+
+verifying routing and symlinks
+
+This workflow ensures safe, predictable upgrades across all platforms.
+
+See migrating.md for migration from external servers.
