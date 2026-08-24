@@ -1,5 +1,5 @@
 # CollectiveAccess Docker Starter Kit
-[Note: since working through this process, it has become apparent that even with steps taken to maximise resources, CollectiveAccess in a Docker environment, even on an up-to-date Windows 11 PC, is painfully slow in operation, and slower than running under Windows IIS. Further investigations have proved that the fastest option in a Windows environment is to set it up entirely within a WSL2 (Windows Subsystem for Linux) environment. This is substantially faster than an existing Windows IIS instance we have been using for several years.]
+[Note: since working through this process, it has become apparent that even with steps taken to maximise resources, CollectiveAccess in a Docker environment, even on an up-to-date Windows 11 PC, is painfully slow in operation, and slower than running under Windows IIS. Further investigations have proved that the fastest option in a Windows environment is to set it up entirely within a WSL2 (Windows Subsystem for Linux) environment. This is substantially faster than an existing Windows IIS instance we have been using for several years.] See See: https://github.com/BasilTas/collectiveaccess-for-windows-wsl
 
 A modern, reproducible Docker environment for running **CollectiveAccess** (Providence + Pawtucket) with:
 
