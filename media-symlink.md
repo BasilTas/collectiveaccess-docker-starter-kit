@@ -10,7 +10,10 @@ CollectiveAccess stores all media files (images, audio, video, documents) in the
 
 To allow Pawtucket to access Providence’s media, a **symbolic link** is used:
 
-capublic/media → ca/media
+```text
+capublic/
+└── media → ../ca/media
+```
 
 Code
 
