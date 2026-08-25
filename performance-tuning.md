@@ -65,7 +65,7 @@ After installation:
 ---
 
 ## Directory Layout
-
+```text
 collectiveaccess-docker/
 │
 ├── ca/               ← Providence
@@ -88,7 +88,7 @@ collectiveaccess-docker/
 ├── apache.conf       ← Apache routing config
 ├── docker-compose.yml
 └── docs/             ← Full documentation set
-
+```
 Code
 
 ---
