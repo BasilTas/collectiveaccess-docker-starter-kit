@@ -32,7 +32,7 @@ This starter kit is designed for museums, archives, libraries, researchers, and 
 
 Clone the repository:
 
-git clone https://github.com/<yourname>/collectiveaccess-docker-starter-kit
+git clone https://github.com/BasilTas/collectiveaccess-docker-starter-kit
 cd collectiveaccess-docker-starter-kit
 
 Code
